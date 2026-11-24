@@ -21,6 +21,26 @@ def require_service(module: str):
     return service
 
 
+def query_filters(service, request: Request) -> dict[str, str]:
+    """收集该服务允许的筛选字段，包含只用于核对、不进入台账 CSV 的扩展列。"""
+    allowed = set(service.LIST_FIELDS)
+    allowed.update(getattr(service, "QUERY_FIELDS", []) or [])
+    allowed.update((getattr(service, "FILTER_ALIASES", {}) or {}).keys())
+    filters: dict[str, str] = {}
+    for key, value in request.query_params.items():
+        if not value.strip():
+            continue
+        if key in allowed:
+            filters[key] = value.strip()
+            continue
+        # 浏览器会把中文参数名百分号编码后再发；用键的原始字节再匹配一次。
+        matched = next((name for name in allowed
+                        if name.encode("utf-8").decode("latin-1") == key), None)
+        if matched is not None:
+            filters[matched] = value.strip()
+    return filters
+
+
 @router.get("/{module}", response_model=PageResult[dict])
 def list_entries(
     module: str,
@@ -31,11 +51,7 @@ def list_entries(
     size: int = Query(default=20, ge=1, le=200),
 ) -> PageResult[dict]:
     service = require_service(module)
-    filters = {
-        key: value.strip()
-        for key, value in request.query_params.items()
-        if key in service.LIST_FIELDS and value.strip()
-    }
+    filters = query_filters(service, request)
     items, total = service.list_entries(
         filters=filters, keyword=keyword, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
@@ -49,13 +65,11 @@ def export_entries(
     status: str | None = Query(default=None),
 ) -> StreamingResponse:
     service = require_service(module)
-    filters = {
-        key: value.strip()
-        for key, value in request.query_params.items()
-        if key in service.LIST_FIELDS and value.strip()
-    }
+    filters = query_filters(service, request)
     items, _ = service.list_entries(
         filters=filters, keyword=keyword, status=status, page=1, size=1_000_000)
+    # 交付侧的「待补写」占位只用于列表核对，不写进任务台账 CSV。
+    items = [item for item in items if not str(item.get("id", "")).startswith("pending:")]
     output = io.StringIO()
     output.write("\ufeff")
     writer = csv.writer(output, lineterminator="\n")

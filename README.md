@@ -77,5 +77,23 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+### 交付链路与登记回执
+
+导出通道的手工登记和自动交付共用 `ExportChannelService.build_task_row`
+生成任务行、`build_registration_receipt` 生成「任务登记数据回执」；自动交付的
+发布判断单独由 `publish_decision` 负责。台账 CSV 的列和单元格保持不变，
+交付标识、登记方式、回执状态等只作为行内扩展字段保存在 JSON 响应里。
+
+- `POST /api/chains/delivery`：交付链路，按 `delivery_id` 幂等，同一标识只保留
+  一条自动登记和一条审计；同一批次的其他导出任务不会被合并。
+  `interrupt_after=export` 可在自动登记写入后、采集审计确认前中断。
+- `GET /api/chains/deliveries/pending`：交付端待处理凭据（登记已写、审计待补）。
+- `POST /api/chains/delivery/resume` 或
+  `POST /api/chains/deliveries/{delivery_id}/resume`：用同一交付标识恢复，可重复调用。
+- `GET /api/chains/deliveries/{delivery_id}`：按交付标识同时核对登记明细与审计。
+- 旧台账 `GET /api/export_channel?delivery_id=...` 可看到已写登记与审计待补状态；
+  审计入口 `GET /api/crawl_audit?delivery_id=...` 会显示待补写占位，补写后
+  只剩一条正式审计。补写可用 `POST /api/crawl_audit`（值里带 `交付标识`）。
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA

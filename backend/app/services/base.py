@@ -10,6 +10,8 @@ class BaseModuleService:
     MODULE = ""
     ENTITY = ""
     LIST_FIELDS: list[str] = []
+    # 可供查询/筛选的字段；默认与列表列一致，模块可加入只用于核对的扩展字段。
+    QUERY_FIELDS: list[str] = []
     REQUIRED_FIELDS: list[str] = []
     STATUS_ORDER: list[str] = []
     ACTION_RULES: dict[str, str] = {}
@@ -24,9 +26,12 @@ class BaseModuleService:
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict[str, Any]], int]:
+        query_fields = self.QUERY_FIELDS or self.LIST_FIELDS
+        aliases = getattr(self, "FILTER_ALIASES", {}) or {}
         rows = list(store.rows(self.MODULE))
         for field, expected in (filters or {}).items():
-            if field in self.LIST_FIELDS:
+            field = aliases.get(field, field)
+            if field in query_fields:
                 rows = [
                     row for row in rows
                     if expected.casefold() in str(row.get(field, "")).casefold()
